@@ -1,25 +1,24 @@
 vasp:
-  compiler:
-  - toolchain: gcc
-    spec: gcc@13.2
-  - toolchain: llvm
-    spec: nvhpc@25.7
-  unify: true
-  mpi:
-    spec: cray-mpich@8.1.32%nvhpc
-    gpu: cuda
+  compiler: [gcc]
+  network:
+    mpi: cray-mpich@8.1.32
+    specs:
+    - libfabric@2.3 +gdrcopy
+  unify: when_possible
   specs:
-      - vasp@6.5.1%nvhpc +cuda +openmp +hdf5 +wannier90
-      - cuda@12.9%nvhpc
-      - wannier90%nvhpc
-      - fftw%nvhpc +openmp
-      - nvpl-blas%nvhpc threads=openmp
-      - nvpl-lapack%nvhpc threads=openmp
-      - netlib-scalapack%nvhpc ~shared
-      - hdf5%nvhpc +fortran
-      # aws plugin 1.14.0 was found to work well with libfabric 1.22
-      - aws-ofi-nccl@1.14.0
-      - cmake
+      #- vasp@6.5.1 +cuda +openmp +hdf5 +wannier90 +dftd4 %c,cxx,fortran=nvhpc ^libxml2%gcc
+      - vasp@6.5.1 +cuda +openmp +hdf5 +wannier90 %c,cxx,fortran=nvhpc ^libxml2%gcc
+      - cuda@12.9 ^libxml2 %c=gcc
+      - wannier90 %c,fortran=nvhpc
+      - fftw +openmp %c,fortran=nvhpc
+      - nvpl-blas threads=openmp
+      - nvpl-lapack threads=openmp
+      #- netlib-scalapack ~shared  %c,fortran=nvhpc ^cmake %c,cxx=gcc
+      - netlib-scalapack ~shared  %c,fortran=nvhpc ^cmake%gcc
+      - hdf5 +fortran +mpi %c,fortran=nvhpc
+      #- dftd4 build_system=cmake %c,fortran=nvhpc ^cmake%gcc 
+      - cmake %c,cxx=gcc
+      - aws-ofi-nccl %c,cxx=gcc ^cray-mpich%nvhpc
   variants:
       - cuda_arch=90
   views:

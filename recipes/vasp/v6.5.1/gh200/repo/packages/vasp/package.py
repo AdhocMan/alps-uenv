@@ -5,7 +5,10 @@
 import os
 from pathlib import Path
 
+import spack.util.environment
 from spack.package import *
+from spack_repo.builtin.build_systems.makefile import MakefilePackage
+from spack_repo.builtin.build_systems.cuda import CudaPackage
 
 
 class Vasp(MakefilePackage, CudaPackage):
@@ -35,6 +38,13 @@ class Vasp(MakefilePackage, CudaPackage):
     variant("cuda", default=False, description="Enables running on Nvidia GPUs")
     variant("hdf5", default=False, description="Enabled HDF5 support")
     variant("wannier90", default=False, description="Enabled Wannier90 support")
+    variant("libxc", default=False, description="Enabled LibXC support")
+    variant("dftd4", default=False, description="Enabled DFTD4 support")
+
+    # Language dependencies (required in Spack v1.0+)
+    depends_on("c", type="build")
+    depends_on("cxx", type="build")
+    depends_on("fortran", type="build")
 
     #depends_on("rsync", type="build")
     depends_on("blas")
@@ -55,6 +65,10 @@ class Vasp(MakefilePackage, CudaPackage):
 
     depends_on("hdf5+fortran+mpi", when="+hdf5")
     depends_on("wannier90", when="+wannier90")
+    depends_on("libxc~fhc+fortran", when="+libxc")
+    depends_on("dftd4", when="+dftd4")
+    depends_on("multicharge", when="+dftd4")
+    depends_on("mctc-lib", when="+dftd4")
 
     conflicts(
         "%gcc@:8", msg="GFortran before 9.x does not support all features needed to build VASP"
@@ -143,6 +157,22 @@ class Vasp(MakefilePackage, CudaPackage):
         if spec.satisfies("+wannier90"):
             cpp_options.append("-DVASP2WANNIER90")
             llibs.append(spec["wannier90"].libs.ld_flags)
+
+        if spec.satisfies("+libxc"):
+            cpp_options.append("-DUSELIBXC")
+            llibs.append(spec["libxc:fortran"].libs.ld_flags)
+            incs.append(spec["libxc:fortran"].headers.include_flags)
+
+        if spec.satisfies("+dftd4"):
+            cpp_options.append("-DDFTD4")
+            llibs.append(spec["dftd4"].libs.ld_flags)
+            llibs.append(spec["mctc-lib"].libs.ld_flags)
+            llibs.append(spec["multicharge"].libs.ld_flags)
+            incs.append(spec["dftd4"].headers.include_flags)
+            module_dir = find(self.spec['dftd4'].prefix, 'dftd4.mod', recursive=True)
+            if module_dir:
+                module_path = os.path.dirname(module_dir[0])
+                incs.append(f"-I{module_path}")
 
 
         filter_file(r"^VASP_TARGET_CPU[ ]{0,}\?=.*", "", make_include)

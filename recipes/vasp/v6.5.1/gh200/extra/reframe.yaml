@@ -1,7 +1,6 @@
 run:
   features:
     - vasp
-    - cuda
     - mpi
   cc: mpicc
   cxx: mpic++
@@ -11,7 +10,6 @@ run:
 develop:
   features:
     - vasp-dev
-    - cuda
     - mpi
   cc: mpicc
   cxx: mpic++
@@ -20,7 +18,6 @@ develop:
     - develop
 modules:
   features:
-    - cuda
     - mpi
     - vasp-dev
   cc: mpicc
@@ -29,4 +26,4 @@ modules:
   views:
     - modules
   activation:
-    - module load cmake cray-mpich cuda fftw gcc hdf5 netlib-scalapack nvhpc nvpl-blas nvpl-lapack wannier90
+    - module load cmake cray-mpich fftw gcc hdf5 netlib-scalapack wannier90

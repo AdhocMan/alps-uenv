@@ -1,7 +1,8 @@
-# Copyright 2013-2024 Lawrence Livermore National Security, LLC and other
-# Spack Project Developers. See the top-level COPYRIGHT file for details.
+# Copyright Spack Project Developers. See COPYRIGHT file for details.
 #
 # SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
+from spack_repo.builtin.build_systems.autotools import AutotoolsPackage
 
 from spack.package import *
 
@@ -15,9 +16,12 @@ class AwsOfiNccl(AutotoolsPackage):
     url = "https://github.com/aws/aws-ofi-nccl/archive/v0.0.0.tar.gz"
     git = "https://github.com/aws/aws-ofi-nccl.git"
 
-    maintainers("bvanessen")
+    maintainers("bvanessen", "msimberg")
 
     version("master", branch="master")
+    version("1.17.2", sha256="6676f49cdfbaa10e953f18aad55f25812e0a7e716692bc911a69fd55cab42181")
+    version("1.17.1", sha256="15a3b5db51075d20b2cb255b99668a7161779fdf5455436e3bea02d59a04685a")
+    version("1.17.0", sha256="45a383ffca1e17866e290247e4a314d190aeee09c5380b983a62633168765ec1")
     version("1.16.3", sha256="a3e99ecdb6331139b28097ffb3dc03418ed41d1867c6d225778e16a22fbebf60")
     version("1.16.2", sha256="579ea75626d8ca5219b8b9c394521cd5d14c058c0f8f7851ce398a1d6bd005e3")
     version("1.16.1", sha256="8688a49067bb763db42350563cc4420cd50570a79b7c1f71f8ee0f010cbe159c")
@@ -46,8 +50,12 @@ class AwsOfiNccl(AutotoolsPackage):
     variant("trace", default=False, description="Enable printing trace messages")
     variant("tests", default=False, description="Build tests")
 
+    depends_on("c", type="build")
+    depends_on("cxx", type="build", when="@1.15:")
+
     depends_on("libfabric")
     depends_on("cuda")
+    #depends_on("nccl fabrics=auto")
     depends_on("mpi")
     depends_on("hwloc", when="@1.7:")
     depends_on("autoconf", type="build")
@@ -61,14 +69,16 @@ class AwsOfiNccl(AutotoolsPackage):
         return url_fmt.format(version)
 
     # To enable this plug-in to work with NCCL add it to the LD_LIBRARY_PATH
-    def setup_run_environment(self, env):
-        aws_ofi_nccl_home = self.spec.prefix
-        env.append_path("LD_LIBRARY_PATH", aws_ofi_nccl_home.lib)
+    def setup_run_environment(self, env: EnvironmentModifications) -> None:
+        env.append_path("LD_LIBRARY_PATH", self.prefix.lib)
+        # Set the network so that NCCL doesn't pick up anything else.
+        env.set("NCCL_NET", "AWS Libfabric")
 
     # To enable this plug-in to work with NCCL add it to the LD_LIBRARY_PATH
-    def setup_dependent_run_environment(self, env, dependent_spec):
-        aws_ofi_nccl_home = self.spec["aws-ofi-nccl"].prefix
-        env.append_path("LD_LIBRARY_PATH", aws_ofi_nccl_home.lib)
+    def setup_dependent_run_environment(
+        self, env: EnvironmentModifications, dependent_spec: Spec
+    ) -> None:
+        env.append_path("LD_LIBRARY_PATH", self.prefix.lib)
 
     def configure_args(self):
         spec = self.spec
