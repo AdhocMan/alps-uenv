@@ -46,23 +46,23 @@ class Vasp(MakefilePackage, CudaPackage):
     depends_on("cxx", type="build")
     depends_on("fortran", type="build")
 
-    #depends_on("rsync", type="build")
+    # Core dependencies
     depends_on("blas")
     depends_on("lapack")
     depends_on("fftw-api")
+    depends_on("mpi", type=("build", "link", "run"))
+    depends_on("scalapack")
+
+    # OpenMP-specific dependencies
     depends_on("fftw+openmp", when="+openmp ^[virtuals=fftw-api] fftw")
     depends_on("amdfftw+openmp", when="+openmp ^[virtuals=fftw-api] amdfftw")
     depends_on("amdblis threads=openmp", when="+openmp ^[virtuals=blas] amdblis")
     depends_on("openblas threads=openmp", when="+openmp ^[virtuals=blas] openblas")
-    depends_on("mpi", type=("build", "link", "run"))
-    # fortran oddness requires the below
-    depends_on("scalapack")
 
-    # Use the bundled NCCL library of NVHPC instead.
-    # The spack build nccl library leads to linking errors.
-    #depends_on("nccl", when="+cuda")
+    # CUDA dependencies
+    depends_on("nccl", when="+cuda")
 
-
+    # Optional feature dependencies
     depends_on("hdf5+fortran+mpi", when="+hdf5")
     depends_on("wannier90", when="+wannier90")
     depends_on("libxc~fhc+fortran", when="+libxc")
@@ -77,46 +77,58 @@ class Vasp(MakefilePackage, CudaPackage):
     conflicts("cuda_arch=none", when="+cuda", msg="CUDA arch required when building openacc port")
 
     def edit(self, spec, prefix):
+        # Initialize compiler and linker flags
         llibs = list(self.compiler.stdcxx_libs)
-        incs = [spec["fftw-api"].headers.include_flags]
-
         llibs.extend([spec["blas"].libs.ld_flags, spec["lapack"].libs.ld_flags])
+
+        incs = [spec["fftw-api"].headers.include_flags]
 
         cpp_options = ["-DCRAY_MPICH"]
 
+        # Fortran compilers
         fc = [spec["mpi"].mpifc]
         fcl = [spec["mpi"].mpifc]
 
+        # Default OpenMP flag (overridden for NVHPC)
         omp_flag = "-fopenmp"
 
+        # Base makefile name
         include_string = "makefile.include."
 
-        # gcc
+        # GCC compiler
         if spec.satisfies("%gcc"):
             include_string += "gnu"
             if spec.satisfies("+openmp"):
                 include_string += "_omp"
             make_include = join_path("arch", include_string)
-        # nvhpc
+        # NVHPC compiler
         elif spec.satisfies("%nvhpc"):
-
+            # QD (quad-double) library configuration
             qd_root = join_path(
                 Path(self.compiler.fc).parent.parent.absolute(),
                 "extras",
                 "qd",
             )
-
             incs.append(f"-I{join_path(qd_root, 'include', 'qd')}")
-            llibs.extend([f"-L{join_path(qd_root, 'lib')}", "-lqdmod", "-lqd"])
-            llibs.extend([f"-Wl,-rpath,{join_path(qd_root, 'lib')}"])
+            llibs.extend([
+                f"-L{join_path(qd_root, 'lib')}",
+                "-lqdmod",
+                "-lqd",
+                f"-Wl,-rpath,{join_path(qd_root, 'lib')}"
+            ])
 
+            # Build makefile name
             include_string += "nvhpc"
             if spec.satisfies("+openmp"):
                 include_string += "_omp"
             if spec.satisfies("+cuda"):
                 include_string += "_acc"
             make_include = join_path("arch", include_string)
+
+            # NVHPC uses -mp for OpenMP instead of -fopenmp
             omp_flag = "-mp"
+
+            # Update compiler references in makefile
             filter_file("= nvfortran", f"= {self.compiler.fc}", make_include)
             filter_file("which nvfortran", f"which {self.compiler.fc}", make_include)
 
@@ -131,20 +143,44 @@ class Vasp(MakefilePackage, CudaPackage):
         llibs.append(spec["scalapack"].libs.ld_flags)
 
         if spec.satisfies("+cuda"):
-            # openacc
-            llibs.extend(["-cudalib=cublas,cusolver,cufft,nccl", "-cuda"])
-            #incs.append(spec["nccl"].headers.include_flags)
-            #llibs.append(spec["nccl"].libs.ld_flags)
+            # OpenACC configuration for NVIDIA GPUs
+            # CUDA libraries
+            llibs.extend(["-cudalib=cublas,cusolver,cufft", "-cuda"])
+
+            # NCCL support
+            llibs.append(spec["nccl"].libs.ld_flags)
+            incs.append(spec["nccl"].headers.include_flags)
+
+            # Search for NCCL wrapper library (try both shared and static)
+            nvhpc_root = Path(self.compiler.fc).parent.parent.parent.absolute()
+            nccl_wrapper = find_libraries(
+                ["cudaforwrapnccl", "libcudaforwrapnccl"],
+                root=nvhpc_root,
+                shared=True,
+                recursive=True
+            )
+
+            if not nccl_wrapper:
+                raise InstallError(
+                    f"Could not find cudaforwrapnccl library in NVHPC installation at {nvhpc_root}"
+                )
+            llibs.append(nccl_wrapper.link_flags)
+
+            # OpenACC flags
             fc.append("-acc")
             fcl.append("-acc")
+
+            # GPU architecture flags
             cuda_flags = [f"cuda{str(spec['cuda'].version.dotted[0:2])}"]
             for f in spec.variants["cuda_arch"].value:
                 cuda_flags.append(f"cc{f}")
-            fc.append(f"-gpu={','.join(cuda_flags)}")
-            fcl.append(f"-gpu={','.join(cuda_flags)}")
+            gpu_flag = f"-gpu={','.join(cuda_flags)}"
+            fc.append(gpu_flag)
+            fcl.append(gpu_flag)
             fcl.extend(list(self.compiler.stdcxx_libs))
-            cc = [spec["mpi"].mpicc, "-acc"]
-            cc.append(f"-gpu={','.join(cuda_flags)}")
+
+            # C compiler configuration
+            cc = [spec["mpi"].mpicc, "-acc", gpu_flag]
             if spec.satisfies("+openmp"):
                 cc.append(omp_flag)
             filter_file("^CC[ \t]*=.*$", f"CC = {' '.join(cc)}", make_include)
@@ -169,17 +205,20 @@ class Vasp(MakefilePackage, CudaPackage):
             llibs.append(spec["mctc-lib"].libs.ld_flags)
             llibs.append(spec["multicharge"].libs.ld_flags)
             incs.append(spec["dftd4"].headers.include_flags)
-            module_dir = find(self.spec['dftd4'].prefix, 'dftd4.mod', recursive=True)
+
+            # Add Fortran module directory
+            module_dir = find(self.spec["dftd4"].prefix, "dftd4.mod", recursive=True)
             if module_dir:
                 module_path = os.path.dirname(module_dir[0])
                 incs.append(f"-I{module_path}")
 
 
+        # Update makefile.include with computed values
         filter_file(r"^VASP_TARGET_CPU[ ]{0,}\?=.*", "", make_include)
-
-        # prepend CPP options
         filter_file(
-            "^CPP_OPTIONS[ \t]*=", f"CPP_OPTIONS = {' '.join(cpp_options)} ", make_include
+            "^CPP_OPTIONS[ \t]*=",
+            f"CPP_OPTIONS = {' '.join(cpp_options)} ",
+            make_include
         )
         filter_file(r"^INCS[ \t]*\+?=.*$", f"INCS = {' '.join(incs)}", make_include)
         filter_file(r"^LLIBS[ \t]*\+?=.*$", f"LLIBS = {' '.join(llibs)}", make_include)
@@ -187,6 +226,7 @@ class Vasp(MakefilePackage, CudaPackage):
         filter_file("^FC[ \t]*=.*$", f"FC = {' '.join(fc)}", make_include)
         filter_file("^FCL[ \t]*=.*$", f"FCL = {' '.join(fcl)}", make_include)
 
+        # Rename to standard makefile.include
         os.rename(make_include, "makefile.include")
 
 
@@ -195,7 +235,7 @@ class Vasp(MakefilePackage, CudaPackage):
             spack_env.set("NVHPC_CUDA_HOME", self.spec["cuda"].prefix)
 
     def build(self, spec, prefix):
-        make("DEPS=1, all, -j1")
+        make("DEPS=1", "all")
 
     def install(self, spec, prefix):
         install_tree("bin/", prefix.bin)
