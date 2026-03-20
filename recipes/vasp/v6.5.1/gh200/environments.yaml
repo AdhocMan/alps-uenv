@@ -1,22 +1,19 @@
 vasp:
-  compiler: [gcc]
+  compiler: [gcc, nvhpc]
   network:
     mpi: cray-mpich@8.1.32
     specs:
     - libfabric@2.3 +gdrcopy
   unify: when_possible
   specs:
-      #- vasp@6.5.1 +cuda +openmp +hdf5 +wannier90 +dftd4 %c,cxx,fortran=nvhpc ^libxml2%gcc
       - vasp@6.5.1 +cuda +openmp +hdf5 +wannier90 %c,cxx,fortran=nvhpc ^libxml2%gcc
       - cuda@12.9 ^libxml2 %c=gcc
       - wannier90 %c,fortran=nvhpc
       - fftw +openmp %c,fortran=nvhpc
       - nvpl-blas threads=openmp
       - nvpl-lapack threads=openmp
-      #- netlib-scalapack ~shared  %c,fortran=nvhpc ^cmake %c,cxx=gcc
       - netlib-scalapack ~shared  %c,fortran=nvhpc ^cmake%gcc
       - hdf5 +fortran +mpi %c,fortran=nvhpc
-      #- dftd4 build_system=cmake %c,fortran=nvhpc ^cmake%gcc 
       - cmake %c,cxx=gcc
       - aws-ofi-nccl %c,cxx=gcc ^cray-mpich%nvhpc
   variants:
